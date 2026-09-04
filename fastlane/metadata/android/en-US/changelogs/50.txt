@@ -1,0 +1,9 @@
+## What's Changed
+* Added an optional Autosave setting for the memo editor: every change is saved on the device immediately and synced in the background, with no "discard changes?" prompt on exit.
+* Tapping a memo in a widget now opens the editor when the edit gesture is set to single tap.
+* Fixed local edits made while a sync was in progress being overwritten by the server copy.
+* Fixed attachments added during a sync being deleted from the device.
+* Fixed the app reopening the last memo from a widget or share after unlocking or rotating.
+* Fixed opening a memo from a widget on a cold start showing "Memo not found" or an empty editor.
+
+**Full Changelog**: https://github.com/Ekats/MoeMemosAndroid/compare/f4d8679...2.0.5
