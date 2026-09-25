@@ -14,7 +14,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +39,9 @@ import me.mudkip.moememos.data.model.ShareContent
 import me.mudkip.moememos.ext.popBackStackIfLifecycleIsResumed
 import me.mudkip.moememos.ext.suspendOnErrorMessage
 import me.mudkip.moememos.ui.page.common.LocalRootNavController
-import me.mudkip.moememos.ui.util.PickMultipleImagesContract
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import me.mudkip.moememos.util.extractCustomTags
 import me.mudkip.moememos.viewmodel.LocalMemos
 import me.mudkip.moememos.viewmodel.LocalUserState
@@ -60,12 +62,12 @@ fun MemoInputPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val memo = remember { memosViewModel.memos.toList().find { it.identifier == memoIdentifier } }
     // What the editor was loaded from: `memo`, replaced by the database row once it is read (the list
     // copy above is not refreshed while a push or sync runs, so it can be older).
     var baseline by remember { mutableStateOf(memo) }
-    val autosaveEnabled by viewModel.autosaveEnabled.collectAsState(initial = false)
+    val autosaveEnabled by viewModel.autosaveEnabled.collectAsStateWithLifecycle(initialValue = false)
     var autosaveIdentifier by rememberSaveable { mutableStateOf(memo?.identifier) }
     var autosaveDirty by remember { mutableStateOf(false) }
     var exiting by remember { mutableStateOf(false) }
@@ -180,7 +182,7 @@ fun MemoInputPage(
     }
 
     val pickImages = rememberLauncherForActivityResult(
-        PickMultipleImagesContract(MaxSelectableImages)
+        PickMultipleVisualMedia(MaxSelectableImages)
     ) { uris ->
         if (uris.isNotEmpty()) {
             uploadImages(uris)
@@ -221,6 +223,7 @@ fun MemoInputPage(
             MemoInputBottomBar(
                 currentAccount = currentAccount,
                 currentVisibility = currentVisibility,
+                showSpaceVisibility = memo?.visibility == MemoVisibility.SPACE,
                 visibilityMenuExpanded = visibilityMenuExpanded,
                 onVisibilityExpandedChange = { visibilityMenuExpanded = it },
                 onVisibilitySelected = { currentVisibility = it },
@@ -237,7 +240,7 @@ fun MemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickImages.launch(Unit)
+                    pickImages.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))
