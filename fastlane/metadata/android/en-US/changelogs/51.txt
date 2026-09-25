@@ -1,0 +1,6 @@
+* Fixed autosaved edits being reverted when a sync ran at the same time.
+* Fixed a second editor opening for the same memo (widget tap, double tap) and writing old text back.
+* Fixed Send or Back reverting a memo opened from an outdated list copy.
+* Edits are saved and uploaded right away when leaving the app.
+* Fixed pinned and archived being lost on a memo's first upload.
+* Added "Transfer to Server" to copy local memos to a server account.
