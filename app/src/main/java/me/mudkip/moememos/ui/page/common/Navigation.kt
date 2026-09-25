@@ -1,31 +1,26 @@
 package me.mudkip.moememos.ui.page.common
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
-import androidx.activity.ComponentActivity
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.material3.MaterialTheme
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.util.Consumer
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import me.mudkip.moememos.MainActivity
 import me.mudkip.moememos.data.model.ShareContent
+import me.mudkip.moememos.ext.navigateToMemoEditor
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ui.page.account.AccountPage
 import me.mudkip.moememos.ui.page.account.AddAccountPage
@@ -38,29 +33,40 @@ import me.mudkip.moememos.ui.page.memos.TagMemoPage
 import me.mudkip.moememos.ui.page.resource.ResourceListPage
 import me.mudkip.moememos.ui.page.settings.SettingsPage
 import me.mudkip.moememos.ui.theme.MoeMemosTheme
+import me.mudkip.moememos.ui.util.rememberLocalNetworkPermissionRequest
+import me.mudkip.moememos.util.usesLocalNetwork
+import me.mudkip.moememos.viewmodel.LocalMemos
 import me.mudkip.moememos.viewmodel.LocalUserState
 
 @Composable
 fun Navigation() {
     val navController = rememberNavController()
     val userStateViewModel = LocalUserState.current
+    val memosViewModel = LocalMemos.current
     val context = LocalContext.current
+    val requestLocalNetworkPermission = rememberLocalNetworkPermissionRequest()
+
+    val currentHost = userStateViewModel.host
+    LaunchedEffect(currentHost) {
+        if (Build.VERSION.SDK_INT >= 37 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+                PackageManager.PERMISSION_GRANTED &&
+            currentHost.isNotBlank() &&
+            usesLocalNetwork(currentHost) &&
+            requestLocalNetworkPermission(currentHost) &&
+            currentHost == userStateViewModel.host
+        ) {
+            userStateViewModel.loadCurrentUser()
+            memosViewModel.loadMemos()
+        }
+    }
     var shareContent by remember { mutableStateOf<ShareContent?>(null) }
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
         MoeMemosTheme {
-            NavHost(
-                modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+            MemosNavHost(
                 navController = navController,
                 startDestination = RouteName.MEMOS,
-                enterTransition = {
-                    slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Up,
-                        initialOffset = { it / 4 }) + fadeIn()
-                },
-                exitTransition = {
-                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Down,
-                        targetOffset = { it / 4 }) + fadeOut()
-                },
             ) {
                 composable(RouteName.MEMOS) {
                     MemosPage()
@@ -137,7 +143,7 @@ fun Navigation() {
         userStateViewModel.loadCurrentUser()
     }
 
-    fun handleIntent(intent: Intent) {
+    suspend fun handleIntent(intent: Intent) {
         when(intent.action) {
             Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {
                 shareContent = ShareContent.parseIntent(intent)
@@ -155,36 +161,30 @@ fun Navigation() {
             MainActivity.ACTION_EDIT_MEMO -> {
                 val memoId = intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)
                 if (memoId != null) {
-                    navController.navigate("${RouteName.EDIT}?memoId=$memoId")
+                    memosViewModel.awaitInitialLoad()
+                    if (memosViewModel.memos.none { it.identifier == memoId }) {
+                        navController.navigate("${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(memoId)}")
+                    } else {
+                        navController.navigateToMemoEditor(memoId)
+                    }
                 }
             }
             MainActivity.ACTION_VIEW_MEMO -> {
                 val memoId = intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)
                 if (memoId != null) {
+                    memosViewModel.awaitInitialLoad()
                     navController.navigate("${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(memoId)}")
                 }
             }
         }
     }
 
-    LaunchedEffect(context) {
-        if (context is ComponentActivity && context.intent != null) {
-            handleIntent(context.intent)
-        }
-    }
-
-    DisposableEffect(context) {
-        val activity = context as? ComponentActivity
-
-        val listener = Consumer<Intent> {
-            handleIntent(it)
-        }
-
-        activity?.addOnNewIntentListener(listener)
-
-        onDispose {
-            activity?.removeOnNewIntentListener(listener)
-        }
+    val activity = context as? MainActivity
+    val pendingIntent = activity?.pendingIntent
+    LaunchedEffect(pendingIntent) {
+        if (pendingIntent == null) return@LaunchedEffect
+        handleIntent(pendingIntent)
+        activity.pendingIntent = null
     }
 }
 

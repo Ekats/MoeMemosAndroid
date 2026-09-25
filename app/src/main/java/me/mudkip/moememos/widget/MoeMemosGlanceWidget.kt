@@ -52,12 +52,16 @@ import androidx.glance.text.TextStyle
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import me.mudkip.moememos.MainActivity
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.local.entity.MemoEntity
+import me.mudkip.moememos.data.model.MemoEditGesture
 import me.mudkip.moememos.data.model.MemoVisibility
 import me.mudkip.moememos.data.service.MemoService
+import me.mudkip.moememos.ext.settingsDataStore
+import timber.log.Timber
 import java.time.Instant
 
 class MoeMemosGlanceWidget : GlanceAppWidget() {
@@ -70,17 +74,29 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
             WidgetEntryPoint::class.java
         )
         val memoService = widgetEntryPoint.memoService()
+        val settings = context.settingsDataStore.data.first()
+        val openInEditor = settings.usersList
+            .firstOrNull { it.accountKey == settings.currentUser }
+            ?.settings?.editGesture == MemoEditGesture.SINGLE
 
-        provideContent {
-            val prefs = currentState<Preferences>()
-            GlanceTheme {
-                WidgetContent(context, memoService, prefs)
-            }
+        provideContent(createContent(context, memoService, openInEditor))
+    }
+
+    // Keep composable lambda captures outside the coroutine state machine so Compose
+    // can collect stack trace mappings for the widget content.
+    private fun createContent(
+        context: Context,
+        memoService: MemoService,
+        openInEditor: Boolean
+    ): @Composable () -> Unit = {
+        val prefs = currentState<Preferences>()
+        GlanceTheme {
+            WidgetContent(context, memoService, prefs, openInEditor)
         }
     }
 
     @Composable
-    private fun WidgetContent(context: Context, memoService: MemoService, prefs: Preferences) {
+    private fun WidgetContent(context: Context, memoService: MemoService, prefs: Preferences, openInEditor: Boolean) {
         var memos by remember { mutableStateOf<List<MemoEntity>>(emptyList()) }
         var isLoading by remember { mutableStateOf(true) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -112,7 +128,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                     }
                 } catch (e: Exception) {
                     error = e.message ?: "Unknown error"
-                    android.util.Log.e("MoeMemosWidget", "Exception in widget", e)
+                    Timber.tag("MoeMemosWidget").e(e, "Exception in widget")
                 } finally {
                     isLoading = false
                 }
@@ -233,7 +249,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         itemsIndexed(memos) { index, memo ->
                             val isLastMemo = index == memos.size - 1
 
-                            MemoItem(context, memo, isLastMemo)
+                            MemoItem(context, memo, openInEditor, isLastMemo)
 
                             if (!isLastMemo) {
                                 Spacer(modifier = GlanceModifier.height(2.dp))
@@ -246,7 +262,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun MemoItem(context: Context, memo: MemoEntity, isLastMemo: Boolean = false) {
+    private fun MemoItem(context: Context, memo: MemoEntity, openInEditor: Boolean, isLastMemo: Boolean = false) {
         // Card-like container with rounded corners
         Box(
             modifier = GlanceModifier
@@ -263,7 +279,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                             else R.drawable.widget_card_background
                         )
                     )
-                    .clickable(actionStartActivity(createViewMemoIntent(context, memo.identifier)))
+                    .clickable(actionStartActivity(createMemoIntent(context, memo.identifier, openInEditor)))
                     .padding(12.dp, 12.dp, 12.dp, if (isLastMemo) 8.dp else 12.dp)
             ) {
                 // Memo header
@@ -357,9 +373,9 @@ private fun createNewMemoIntent(context: Context): Intent =
     }
 
 
-private fun createViewMemoIntent(context: Context, memoId: String): Intent =
+private fun createMemoIntent(context: Context, memoId: String, openInEditor: Boolean): Intent =
     Intent(context, MainActivity::class.java).apply {
-        action = MainActivity.ACTION_VIEW_MEMO
+        action = if (openInEditor) MainActivity.ACTION_EDIT_MEMO else MainActivity.ACTION_VIEW_MEMO
         putExtra(MainActivity.EXTRA_MEMO_ID, memoId)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
     }

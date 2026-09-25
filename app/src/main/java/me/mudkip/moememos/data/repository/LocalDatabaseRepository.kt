@@ -40,6 +40,10 @@ class LocalDatabaseRepository(
         }
     }
 
+    override suspend fun getMemo(identifier: String): MemoEntity? {
+        return memoDao.getMemoById(identifier, accountKey)?.let { withResources(it) }
+    }
+
     override suspend fun listArchivedMemos(): ApiResponse<List<MemoEntity>> {
         return try {
             val memos = memoDao.getArchivedMemos(accountKey).map { withResources(it) }
@@ -53,7 +57,8 @@ class LocalDatabaseRepository(
         content: String,
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
-        tags: List<String>?
+        tags: List<String>?,
+        deferPush: Boolean
     ): ApiResponse<MemoEntity> {
         return try {
             val now = Instant.now()
@@ -93,7 +98,8 @@ class LocalDatabaseRepository(
         resources: List<ResourceEntity>?,
         visibility: MemoVisibility?,
         tags: List<String>?,
-        pinned: Boolean?
+        pinned: Boolean?,
+        deferPush: Boolean
     ): ApiResponse<MemoEntity> {
         return try {
             val existingMemo = memoDao.getMemoById(identifier, accountKey)
