@@ -46,7 +46,6 @@ import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.state.PreferencesGlanceStateDefinition
-import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.skydoves.sandwich.suspendOnSuccess
@@ -135,79 +134,15 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
             }
         }
 
-        Column(
+        // No header: the list uses the whole widget, and the buttons float over its bottom-right corner
+        Box(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(GlanceTheme.colors.background)
                 .clickable(actionStartActivity(createOpenAppIntent(context)))
-                .padding(16.dp)
+                .padding(8.dp),
+            contentAlignment = Alignment.BottomEnd
         ) {
-            // Header
-            Row(
-                modifier = GlanceModifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // App icon
-                Image(
-                    provider = ImageProvider(R.mipmap.ic_launcher),
-                    contentDescription = null,
-                    modifier = GlanceModifier.size(24.dp)
-                )
-                Spacer(modifier = GlanceModifier.width(8.dp))
-                Column {
-                    Text(
-                        text = context.getString(R.string.memos),
-                        style = TextStyle(
-                            color = GlanceTheme.colors.primary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    if (filterTag != null) {
-                        Text(
-                            text = "#$filterTag",
-                            style = TextStyle(
-                                color = GlanceTheme.colors.onSurfaceVariant,
-                                fontSize = 12.sp
-                            )
-                        )
-                    }
-                }
-                Spacer(modifier = GlanceModifier.defaultWeight())
-                // Refresh button
-                Box(
-                    modifier = GlanceModifier
-                        .size(36.dp)
-                        .clickable(actionRunCallback<RefreshAction>())
-                        .padding(4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_shortcut_refresh),
-                        contentDescription = context.getString(R.string.refresh),
-                        modifier = GlanceModifier.size(24.dp)
-                    )
-                }
-                Spacer(modifier = GlanceModifier.width(8.dp))
-                // Add new memo button
-                Box(
-                    modifier = GlanceModifier
-                        .size(36.dp)
-                        .clickable(actionStartActivity(createNewMemoIntent(context)))
-                        .padding(4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_shortcut_add),
-                        contentDescription = context.getString(R.string.edit),
-                        modifier = GlanceModifier.size(24.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = GlanceModifier.height(8.dp))
-
-            // Content
             when {
                 isLoading -> {
                     Box(
@@ -255,10 +190,38 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                                 Spacer(modifier = GlanceModifier.height(2.dp))
                             }
                         }
+                        // Room to scroll the last memo out from under the floating buttons
+                        item {
+                            Spacer(modifier = GlanceModifier.height(FloatingButtonSize + 8.dp))
+                        }
                     }
                 }
             }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FloatingButton(
+                    icon = R.drawable.ic_shortcut_refresh,
+                    contentDescription = context.getString(R.string.refresh),
+                    modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>())
+                )
+                Spacer(modifier = GlanceModifier.width(8.dp))
+                FloatingButton(
+                    icon = R.drawable.ic_shortcut_add,
+                    contentDescription = context.getString(R.string.edit),
+                    modifier = GlanceModifier.clickable(actionStartActivity(createNewMemoIntent(context)))
+                )
+            }
         }
+    }
+
+    // The shortcut icons are already filled circles, so they work as floating buttons as they are
+    @Composable
+    private fun FloatingButton(icon: Int, contentDescription: String, modifier: GlanceModifier) {
+        Image(
+            provider = ImageProvider(icon),
+            contentDescription = contentDescription,
+            modifier = modifier.size(FloatingButtonSize)
+        )
     }
 
     @Composable
@@ -353,6 +316,8 @@ class RefreshAction : ActionCallback {
         MoeMemosGlanceWidget().update(context, glanceId)
     }
 }
+
+private val FloatingButtonSize = 40.dp
 
 object MoeMemosWidgetKeys {
     val filterTag = stringPreferencesKey("filter_tag")
