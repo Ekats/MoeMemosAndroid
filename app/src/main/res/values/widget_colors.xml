@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Faint backdrop of the date bubble on widget memo cards -->
+    <color name="widget_date_bubble">#14000000</color>
+</resources>

@@ -259,8 +259,9 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                 .fillMaxWidth()
                 .padding(2.dp, 4.dp, 2.dp, if (isLastMemo) 0.dp else 4.dp)
         ) {
-            // Card content with rounded corners and borders (via XML drawables)
-            Column(
+            // Card with rounded corners and borders (via XML drawables). The text starts at the top;
+            // date, lock and pin float in a faint bubble over its top-right corner.
+            Box(
                 modifier = GlanceModifier
                     .fillMaxWidth()
                     .background(
@@ -274,14 +275,21 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         )
                     )
                     .clickable(actionStartActivity(createMemoIntent(context, memo.identifier, openInEditor)))
-                    .padding(12.dp, 12.dp, 12.dp, if (isLastMemo) 8.dp else 12.dp)
+                    .padding(10.dp),
+                contentAlignment = Alignment.TopEnd
             ) {
-                // Memo header
+                // Memo content, markdown formatted, limited to the lines set in settings
+                AndroidRemoteViews(
+                    remoteViews = widgetMemoTextViews(context, memo.content, linesPerMemo),
+                    modifier = GlanceModifier.fillMaxWidth()
+                )
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = GlanceModifier.fillMaxWidth()
+                    modifier = GlanceModifier
+                        .background(ImageProvider(R.drawable.widget_date_bubble))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    // Date
                     Text(
                         text = DateUtils.getRelativeTimeSpanString(
                             memo.date.toEpochMilli(),
@@ -290,40 +298,28 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         ).toString(),
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurfaceVariant,
-                            fontSize = 12.sp
+                            fontSize = 10.sp
                         )
                     )
-                    
-                    if (memo.visibility != MemoVisibility.PUBLIC){
-                        Spacer(modifier = GlanceModifier.width(4.dp))
+                    if (memo.visibility != MemoVisibility.PUBLIC) {
+                        Spacer(modifier = GlanceModifier.width(3.dp))
                         Image(
                             provider = ImageProvider(android.R.drawable.ic_lock_lock),
                             contentDescription = "Private",
-                            modifier = GlanceModifier.size(14.dp)
-                        )
-                    }
-                    
-                    // Pinned indicator
-                    if (memo.pinned) {
-                        Spacer(modifier = GlanceModifier.width(4.dp))
-                        Image(
-                            provider = ImageProvider(R.drawable.ic_pin),
-                            contentDescription = "Pinned",
-                            modifier = GlanceModifier.size(14.dp),
+                            modifier = GlanceModifier.size(10.dp),
                             colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant)
                         )
                     }
-                    
-                    Spacer(modifier = GlanceModifier.defaultWeight())
+                    if (memo.pinned) {
+                        Spacer(modifier = GlanceModifier.width(3.dp))
+                        Image(
+                            provider = ImageProvider(R.drawable.ic_pin),
+                            contentDescription = "Pinned",
+                            modifier = GlanceModifier.size(10.dp),
+                            colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant)
+                        )
+                    }
                 }
-                
-                Spacer(modifier = GlanceModifier.height(if (isLastMemo) 4.dp else 8.dp))
-                
-                // Memo content, markdown formatted, limited to the lines set in settings
-                AndroidRemoteViews(
-                    remoteViews = widgetMemoTextViews(context, memo.content, linesPerMemo),
-                    modifier = GlanceModifier.fillMaxWidth()
-                )
             }
         }
     }
