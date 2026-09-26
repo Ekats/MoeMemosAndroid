@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,20 +16,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FormatColorReset
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -43,7 +51,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.skydoves.sandwich.suspendOnSuccess
@@ -57,6 +67,7 @@ import me.mudkip.moememos.ext.navigateToMemoEditor
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ext.titleResource
 import me.mudkip.moememos.ui.page.common.LocalRootNavController
+import me.mudkip.moememos.util.MemoColor
 import me.mudkip.moememos.viewmodel.LocalMemos
 import me.mudkip.moememos.viewmodel.LocalUserState
 
@@ -100,13 +111,18 @@ fun MemosCard(
             }
         )
 
+    val memoColors by memosViewModel.memoColors.collectAsStateWithLifecycle()
+    val memoColor = memoColors[memo.identifier]
+
     Card(
         modifier = cardModifier,
         border = if (memo.pinned) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
         } else {
             null
-        }
+        },
+        colors = memoColor?.let { CardDefaults.cardColors(containerColor = colorResource(it.color)) }
+            ?: CardDefaults.cardColors()
     ) {
         Column {
             Row(
@@ -189,6 +205,7 @@ fun MemosCardActionButton(
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showColorDialog by remember { mutableStateOf(false) }
     val memoLabel = stringResource(R.string.memo)
 
     Box {
@@ -237,6 +254,18 @@ fun MemosCardActionButton(
                 leadingIcon = {
                     Icon(
                         Icons.Outlined.Edit,
+                        contentDescription = null
+                    )
+                })
+            DropdownMenuItem(
+                text = { Text(R.string.memo_color.string) },
+                onClick = {
+                    menuExpanded = false
+                    showColorDialog = true
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.Palette,
                         contentDescription = null
                     )
                 })
@@ -331,6 +360,18 @@ fun MemosCardActionButton(
         }
     }
 
+    if (showColorDialog) {
+        val memoColors by memosViewModel.memoColors.collectAsStateWithLifecycle()
+        MemoColorDialog(
+            current = memoColors[memo.identifier],
+            onSelect = { color ->
+                memosViewModel.setMemoColor(memo.identifier, color)
+                showColorDialog = false
+            },
+            onDismiss = { showColorDialog = false }
+        )
+    }
+
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -363,4 +404,67 @@ fun MemosCardActionButton(
             }
         )
     }
+}
+
+@Composable
+private fun MemoColorDialog(
+    current: MemoColor?,
+    onSelect: (MemoColor?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options: List<MemoColor?> = listOf(null) + MemoColor.entries
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(R.string.memo_color.string) },
+        text = {
+            Column {
+                options.chunked(5).forEach { row ->
+                    Row(modifier = Modifier.padding(vertical = 6.dp)) {
+                        row.forEach { color ->
+                            val selected = color == current
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .padding(horizontal = 6.dp)
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (color == null) MaterialTheme.colorScheme.surface
+                                        else colorResource(color.color)
+                                    )
+                                    .border(
+                                        width = if (selected) 3.dp else 1.dp,
+                                        color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.outline,
+                                        shape = CircleShape
+                                    )
+                                    .clickable(
+                                        onClickLabel = color?.key ?: R.string.memo_color_none.string
+                                    ) { onSelect(color) }
+                            ) {
+                                if (color == null) {
+                                    Icon(
+                                        Icons.Outlined.FormatColorReset,
+                                        contentDescription = R.string.memo_color_none.string,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else if (selected) {
+                                    Icon(
+                                        Icons.Outlined.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(R.string.close.string)
+            }
+        }
+    )
 }

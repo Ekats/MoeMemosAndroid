@@ -99,6 +99,10 @@
     <string name="edit_gesture_single">Single tap</string>
     <string name="edit_gesture_double">Double tap</string>
     <string name="edit_gesture_long">Long tap</string>
+    <string name="widget_lines_per_memo">Widget lines per memo</string>
+    <string name="widget_lines_all">All</string>
+    <string name="memo_color">Color</string>
+    <string name="memo_color_none">No color</string>
     <string name="autosave">Autosave</string>
     <string name="autosave_summary">Save every change on this device and sync it in the background</string>
     <string name="failed_to_open_attachment">Failed to open attachment</string>

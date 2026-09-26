@@ -36,8 +36,11 @@ import me.mudkip.moememos.data.model.MemoVisibility
 import me.mudkip.moememos.data.model.SyncStatus
 import me.mudkip.moememos.data.service.AccountService
 import me.mudkip.moememos.data.service.MemoService
+import me.mudkip.moememos.ext.currentUserSettings
 import me.mudkip.moememos.ext.getErrorMessage
 import me.mudkip.moememos.ext.string
+import me.mudkip.moememos.ext.updateCurrentUserSettings
+import me.mudkip.moememos.util.MemoColor
 import me.mudkip.moememos.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -69,6 +72,16 @@ class MemosViewModel @Inject constructor(
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
 
     private val initialLoad = MutableStateFlow(false)
+
+    // Memo identifier -> colour, kept in the current account's settings (this device only)
+    val memoColors: StateFlow<Map<String, MemoColor>> = appContext.currentUserSettings
+        .map { settings ->
+            settings.memoColors.mapNotNull { (identifier, key) ->
+                MemoColor.fromKey(key)?.let { identifier to it }
+            }.toMap()
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     init {
         snapshotFlow { memos.toList() }
@@ -179,6 +192,19 @@ class MemosViewModel @Inject constructor(
 
     private fun ApiResponse<Unit>.isAccessTokenInvalidFailure(): Boolean {
         return this is ApiResponse.Failure.Exception && this.throwable == MoeMemosException.accessTokenInvalid
+    }
+
+    fun setMemoColor(memoIdentifier: String, color: MemoColor?) = viewModelScope.launch {
+        appContext.updateCurrentUserSettings { settings ->
+            settings.copy(
+                memoColors = if (color == null) {
+                    settings.memoColors - memoIdentifier
+                } else {
+                    settings.memoColors + (memoIdentifier to color.key)
+                }
+            )
+        }
+        WidgetUpdater.updateWidgets(appContext)
     }
 
     fun loadTags() = viewModelScope.launch {

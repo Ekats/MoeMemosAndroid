@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Source
 import androidx.compose.material.icons.outlined.Web
+import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,12 +45,14 @@ import kotlinx.coroutines.launch
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.model.Account
 import me.mudkip.moememos.data.model.MemoEditGesture
+import me.mudkip.moememos.data.model.UserSettings
 import me.mudkip.moememos.data.model.Settings
 import me.mudkip.moememos.data.model.displayTitle
 import me.mudkip.moememos.data.mtls.MtlsManager
 import me.mudkip.moememos.ext.popBackStackIfLifecycleIsResumed
 import me.mudkip.moememos.ext.settingsDataStore
 import me.mudkip.moememos.ext.string
+import me.mudkip.moememos.ext.updateCurrentUserSettings
 import me.mudkip.moememos.ui.component.MemosIcon
 import me.mudkip.moememos.ui.page.common.RouteName
 import me.mudkip.moememos.ui.security.AppLockAuthenticator
@@ -75,6 +78,7 @@ fun SettingsPage(
         AppLockAuthenticator.canAuthenticate(context)
     }
     var showEditGestureDialog by remember { mutableStateOf(false) }
+    var showWidgetLinesDialog by remember { mutableStateOf(false) }
     var showRemoveCertificateDialog by remember { mutableStateOf(false) }
     var hasClientCertificate by remember {
         mutableStateOf(
@@ -120,6 +124,11 @@ fun SettingsPage(
         ?.settings
         ?.editGesture
         ?: MemoEditGesture.NONE
+    val widgetLinesPerMemo = settings.usersList
+        .firstOrNull { it.accountKey == settings.currentUser }
+        ?.settings
+        ?.widgetLinesPerMemo
+        ?: UserSettings().widgetLinesPerMemo
     val autosaveEnabled = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
         ?.settings
@@ -270,6 +279,21 @@ fun SettingsPage(
             }
 
             item {
+                SettingItem(
+                    icon = Icons.Outlined.Widgets,
+                    text = R.string.widget_lines_per_memo.string,
+                    trailingIcon = {
+                        Text(
+                            text = widgetLinesLabel(widgetLinesPerMemo),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                ) {
+                    showWidgetLinesDialog = true
+                }
+            }
+
+            item {
                 SettingSwitchItem(
                     icon = Icons.Outlined.Save,
                     text = R.string.autosave.string,
@@ -403,6 +427,44 @@ fun SettingsPage(
             }
         )
     }
+    if (showWidgetLinesDialog) {
+        AlertDialog(
+            onDismissRequest = { showWidgetLinesDialog = false },
+            title = { Text(R.string.widget_lines_per_memo.string) },
+            text = {
+                LazyColumn {
+                    items(WidgetLineOptions.size) { index ->
+                        val lines = WidgetLineOptions[index]
+                        TextButton(
+                            onClick = {
+                                showWidgetLinesDialog = false
+                                scope.launch(Dispatchers.IO) {
+                                    context.updateCurrentUserSettings { it.copy(widgetLinesPerMemo = lines) }
+                                    WidgetUpdater.updateWidgets(context)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = widgetLinesLabel(lines),
+                                color = if (lines == widgetLinesPerMemo) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showWidgetLinesDialog = false }) {
+                    Text(R.string.close.string)
+                }
+            }
+        )
+    }
     if (showEditGestureDialog) {
         AlertDialog(
             onDismissRequest = { showEditGestureDialog = false },
@@ -456,6 +518,12 @@ fun SettingsPage(
         )
     }
 }
+
+// 0 = the whole memo
+private val WidgetLineOptions = listOf(1, 2, 3, 4, 5, 6, 8, 10, 15, 0)
+
+private fun widgetLinesLabel(lines: Int): String =
+    if (lines > 0) lines.toString() else R.string.widget_lines_all.string
 
 private val MemoEditGesture.titleResource: Int
     get() = when (this) {

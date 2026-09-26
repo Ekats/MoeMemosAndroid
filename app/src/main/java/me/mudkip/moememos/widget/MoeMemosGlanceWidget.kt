@@ -5,6 +5,7 @@ import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +23,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.appwidget.AndroidRemoteViews
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -58,8 +60,11 @@ import me.mudkip.moememos.R
 import me.mudkip.moememos.data.local.entity.MemoEntity
 import me.mudkip.moememos.data.model.MemoEditGesture
 import me.mudkip.moememos.data.model.MemoVisibility
+import me.mudkip.moememos.data.model.UserSettings
 import me.mudkip.moememos.data.service.MemoService
+import me.mudkip.moememos.ext.currentUserSettings
 import me.mudkip.moememos.ext.settingsDataStore
+import me.mudkip.moememos.util.MemoColor
 import timber.log.Timber
 import java.time.Instant
 
@@ -89,13 +94,21 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
         openInEditor: Boolean
     ): @Composable () -> Unit = {
         val prefs = currentState<Preferences>()
+        // Collected, not read once, so colour and line changes show without re-adding the widget
+        val userSettings by context.currentUserSettings.collectAsState(initial = UserSettings())
         GlanceTheme {
-            WidgetContent(context, memoService, prefs, openInEditor)
+            WidgetContent(context, memoService, prefs, openInEditor, userSettings)
         }
     }
 
     @Composable
-    private fun WidgetContent(context: Context, memoService: MemoService, prefs: Preferences, openInEditor: Boolean) {
+    private fun WidgetContent(
+        context: Context,
+        memoService: MemoService,
+        prefs: Preferences,
+        openInEditor: Boolean,
+        userSettings: UserSettings
+    ) {
         var memos by remember { mutableStateOf<List<MemoEntity>>(emptyList()) }
         var isLoading by remember { mutableStateOf(true) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -184,7 +197,14 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         itemsIndexed(memos) { index, memo ->
                             val isLastMemo = index == memos.size - 1
 
-                            MemoItem(context, memo, openInEditor, isLastMemo)
+                            MemoItem(
+                                context,
+                                memo,
+                                openInEditor,
+                                MemoColor.fromKey(userSettings.memoColors[memo.identifier]),
+                                userSettings.widgetLinesPerMemo,
+                                isLastMemo
+                            )
 
                             if (!isLastMemo) {
                                 Spacer(modifier = GlanceModifier.height(2.dp))
@@ -225,7 +245,14 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun MemoItem(context: Context, memo: MemoEntity, openInEditor: Boolean, isLastMemo: Boolean = false) {
+    private fun MemoItem(
+        context: Context,
+        memo: MemoEntity,
+        openInEditor: Boolean,
+        color: MemoColor?,
+        linesPerMemo: Int,
+        isLastMemo: Boolean = false
+    ) {
         // Card-like container with rounded corners
         Box(
             modifier = GlanceModifier
@@ -238,8 +265,12 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                     .fillMaxWidth()
                     .background(
                         ImageProvider(
-                            if (memo.pinned) R.drawable.widget_card_pinned_background 
-                            else R.drawable.widget_card_background
+                            when {
+                                color != null && memo.pinned -> color.widgetCardPinned
+                                color != null -> color.widgetCard
+                                memo.pinned -> R.drawable.widget_card_pinned_background
+                                else -> R.drawable.widget_card_background
+                            }
                         )
                     )
                     .clickable(actionStartActivity(createMemoIntent(context, memo.identifier, openInEditor)))
@@ -288,15 +319,10 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                 
                 Spacer(modifier = GlanceModifier.height(if (isLastMemo) 4.dp else 8.dp))
                 
-                // Memo content
-                Text(
-                    text = memo.content.take(if (isLastMemo) 80 else 100) + 
-                           if (memo.content.length > (if (isLastMemo) 80 else 100)) "..." else "",
-                    style = TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = 14.sp
-                    ),
-                    maxLines = if (isLastMemo) 2 else 3
+                // Memo content, markdown formatted, limited to the lines set in settings
+                AndroidRemoteViews(
+                    remoteViews = widgetMemoTextViews(context, memo.content, linesPerMemo),
+                    modifier = GlanceModifier.fillMaxWidth()
                 )
             }
         }

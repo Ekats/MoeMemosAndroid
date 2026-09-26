@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Memo text in the widgets: a plain TextView so markdown styling (spans) survives RemoteViews -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_memo_text"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:ellipsize="end"
+    android:textColor="?android:attr/textColorPrimary"
+    android:textSize="14sp" />
