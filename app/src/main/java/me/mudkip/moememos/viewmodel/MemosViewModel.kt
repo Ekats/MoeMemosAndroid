@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.mudkip.moememos.R
 import me.mudkip.moememos.data.constant.MemosVersionSupport
 import me.mudkip.moememos.data.constant.MoeMemosException
 import me.mudkip.moememos.data.local.entity.MemoEntity
@@ -153,6 +154,11 @@ class MemosViewModel @Inject constructor(
                     version = compatibility.version,
                     message = compatibility.message
                 )
+            }
+            is AccountService.SyncCompatibility.Unreachable -> {
+                val message = appContext.getString(R.string.server_unreachable, compatibility.message)
+                errorMessage = message
+                return@withContext ManualSyncResult.Failed(message)
             }
             AccountService.SyncCompatibility.Allowed -> Unit
         }

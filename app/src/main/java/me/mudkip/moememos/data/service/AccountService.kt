@@ -5,8 +5,10 @@ import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import androidx.room.withTransaction
+import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.getOrThrow
+import com.skydoves.sandwich.mapSuccess
 import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
@@ -40,6 +42,7 @@ import me.mudkip.moememos.data.repository.MemosV0Repository
 import me.mudkip.moememos.data.repository.MemosV1Repository
 import me.mudkip.moememos.data.repository.RemoteRepository
 import me.mudkip.moememos.data.repository.SyncingRepository
+import me.mudkip.moememos.ext.getErrorMessage
 import me.mudkip.moememos.ext.settingsDataStore
 import me.mudkip.moememos.ext.string
 import net.swiftzer.semver.SemVer
@@ -82,6 +85,8 @@ class AccountService @Inject constructor(
         object Allowed : SyncCompatibility()
         data class Blocked(val message: String?) : SyncCompatibility()
         data class RequiresConfirmation(val version: String, val message: String) : SyncCompatibility()
+        /** The version request itself failed (offline, server down, TLS error), so the version is unknown. */
+        data class Unreachable(val message: String) : SyncCompatibility()
     }
 
     private data class ServerVersionInfo(
@@ -486,8 +491,11 @@ class AccountService @Inject constructor(
             return SyncCompatibility.Allowed
         }
 
-        val serverVersion = fetchVersionForAccount(account)
-            ?: return if (isAutomatic) {
+        val serverVersion = when (val fetched = fetchVersionForAccount(account)) {
+            is VersionFetch.Found -> fetched.info
+            is VersionFetch.Unreachable -> return SyncCompatibility.Unreachable(fetched.message)
+            VersionFetch.Missing -> null
+        } ?: return if (isAutomatic) {
                 SyncCompatibility.Blocked(null)
             } else {
                 SyncCompatibility.Blocked(MemosVersionSupport.supportedVersionsMessage(context))
@@ -578,31 +586,29 @@ class AccountService @Inject constructor(
         return ServerVersionInfo(UserData.AccountCase.ACCOUNT_NOT_SET, "")
     }
 
-    private suspend fun fetchVersionForAccount(account: Account): ServerVersionInfo? {
-        return when (account) {
-            is Account.MemosV0 -> {
-                val version = createMemosV0Client(account.info.host, account.info.accessToken)
-                    .second
-                    .status()
-                    .getOrNull()
-                    ?.profile
-                    ?.version
-                    ?.trim()
-                    .orEmpty()
-                if (version.isBlank()) null else ServerVersionInfo(UserData.AccountCase.MEMOS_V0, version)
-            }
-            is Account.MemosV1 -> {
-                val version = createMemosV1Client(account.info.host, account.info.accessToken)
-                    .second
-                    .getProfile()
-                    .getOrNull()
-                    ?.version
-                    ?.trim()
-                    .orEmpty()
-                if (version.isBlank()) null else ServerVersionInfo(UserData.AccountCase.MEMOS_V1, version)
-            }
-            else -> null
+    private sealed class VersionFetch {
+        data class Found(val info: ServerVersionInfo) : VersionFetch()
+        /** The server answered without a version. */
+        object Missing : VersionFetch()
+        data class Unreachable(val message: String) : VersionFetch()
+    }
+
+    private suspend fun fetchVersionForAccount(account: Account): VersionFetch {
+        val (accountCase, response) = when (account) {
+            is Account.MemosV0 -> UserData.AccountCase.MEMOS_V0 to
+                createMemosV0Client(account.info.host, account.info.accessToken).second.status()
+                    .mapSuccess { profile.version }
+            is Account.MemosV1 -> UserData.AccountCase.MEMOS_V1 to
+                createMemosV1Client(account.info.host, account.info.accessToken).second.getProfile()
+                    .mapSuccess { version }
+            else -> return VersionFetch.Missing
         }
+        if (response !is ApiResponse.Success) {
+            // Not a version problem: report why the server could not be reached
+            return VersionFetch.Unreachable(response.getErrorMessage().take(300))
+        }
+        val version = response.data.trim()
+        return if (version.isBlank()) VersionFetch.Missing else VersionFetch.Found(ServerVersionInfo(accountCase, version))
     }
 
     private suspend fun isUnsupportedSyncVersionAccepted(accountKey: String, version: String): Boolean {
