@@ -259,8 +259,8 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                 .fillMaxWidth()
                 .padding(2.dp, 4.dp, 2.dp, if (isLastMemo) 0.dp else 4.dp)
         ) {
-            // Card with rounded corners and borders (via XML drawables). The text starts at the top;
-            // date, lock and pin float in a faint bubble over its top-right corner.
+            // Card with rounded corners and borders (via XML drawables). Date, lock and pin float in a
+            // faint pill over the bottom-right corner, so the first line stays uncovered.
             Box(
                 modifier = GlanceModifier
                     .fillMaxWidth()
@@ -276,7 +276,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                     )
                     .clickable(actionStartActivity(createMemoIntent(context, memo.identifier, openInEditor)))
                     .padding(10.dp),
-                contentAlignment = Alignment.TopEnd
+                contentAlignment = Alignment.BottomEnd
             ) {
                 // Memo content, markdown formatted, limited to the lines set in settings
                 AndroidRemoteViews(
