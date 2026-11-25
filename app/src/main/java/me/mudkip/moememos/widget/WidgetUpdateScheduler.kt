@@ -35,8 +35,9 @@ object WidgetUpdateScheduler {
             val manager = GlanceAppWidgetManager(context)
             val hasMemosWidget = manager.getGlanceIds(MoeMemosGlanceWidget::class.java).isNotEmpty()
             val hasMemoryWidget = manager.getGlanceIds(MemoryGlanceWidget::class.java).isNotEmpty()
+            val hasSingleMemoWidget = manager.getGlanceIds(SingleMemoGlanceWidget::class.java).isNotEmpty()
 
-            if (!hasMemosWidget && !hasMemoryWidget) {
+            if (!hasMemosWidget && !hasMemoryWidget && !hasSingleMemoWidget) {
                 cancelWidgetUpdates(context)
             }
         }
@@ -57,6 +58,13 @@ object WidgetUpdateScheduler {
         }
         memoryWidgetIds.forEach { glanceId ->
             MemoryGlanceWidget().update(context, glanceId)
+        }
+        manager.getGlanceIds(SingleMemoGlanceWidget::class.java).forEach { glanceId ->
+            // Same as the memos widget: it reloads its memo when refreshKey changes
+            updateAppWidgetState(context, glanceId) { prefs ->
+                prefs[SingleMemoWidgetKeys.refreshKey] = (prefs[SingleMemoWidgetKeys.refreshKey] ?: 0L) + 1
+            }
+            SingleMemoGlanceWidget().update(context, glanceId)
         }
     }
 }

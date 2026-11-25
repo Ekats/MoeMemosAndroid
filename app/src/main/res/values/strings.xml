@@ -151,6 +151,10 @@
     <!-- Widget strings -->
     <string name="memos_widget_title">Memos</string>
     <string name="memory_widget_title">Memory</string>
+    <string name="single_memo_widget_title">Memo</string>
+    <string name="single_memo_widget_description">Shows one memo you choose. Tap it to edit.</string>
+    <string name="single_memo_widget_choose">Choose a memo</string>
+    <string name="single_memo_widget_missing">Memo not found. Tap to choose another.</string>
     <string name="memory_widget_description">Shows a random memo from your timeline.</string>
     <string name="loading">Loading…</string>
     <string name="error_unknown">Unknown error</string>
