@@ -2,19 +2,23 @@ package me.mudkip.moememos.ui.page.settings
 
 import android.app.Activity
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Source
 import androidx.compose.material.icons.outlined.Web
+import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,16 +48,20 @@ import kotlinx.coroutines.launch
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.model.Account
 import me.mudkip.moememos.data.model.MemoEditGesture
+import me.mudkip.moememos.data.model.UserSettings
 import me.mudkip.moememos.data.model.Settings
 import me.mudkip.moememos.data.model.displayTitle
 import me.mudkip.moememos.data.mtls.MtlsManager
 import me.mudkip.moememos.ext.popBackStackIfLifecycleIsResumed
 import me.mudkip.moememos.ext.settingsDataStore
 import me.mudkip.moememos.ext.string
+import me.mudkip.moememos.ext.updateCurrentUserSettings
 import me.mudkip.moememos.ui.component.MemosIcon
 import me.mudkip.moememos.ui.page.common.RouteName
 import me.mudkip.moememos.ui.security.AppLockAuthenticator
 import me.mudkip.moememos.ui.security.AppLockSession
+import me.mudkip.moememos.ui.security.findFragmentActivity
+import me.mudkip.moememos.util.AppLanguage
 import me.mudkip.moememos.viewmodel.LocalUserState
 import me.mudkip.moememos.widget.WidgetUpdater
 
@@ -75,6 +83,9 @@ fun SettingsPage(
         AppLockAuthenticator.canAuthenticate(context)
     }
     var showEditGestureDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var selectedLanguage by remember { mutableStateOf(AppLanguage.currentTag()) }
+    var showWidgetLinesDialog by remember { mutableStateOf(false) }
     var showRemoveCertificateDialog by remember { mutableStateOf(false) }
     var hasClientCertificate by remember {
         mutableStateOf(
@@ -115,18 +126,38 @@ fun SettingsPage(
         }
     }
 
+    fun selectLanguage(tag: String) {
+        showLanguageDialog = false
+        if (tag == selectedLanguage) return
+        AppLanguage.setLanguage(context, tag)
+        selectedLanguage = AppLanguage.currentTag()
+        WidgetUpdater.updateWidgets(context)
+        context.findFragmentActivity()?.recreate()
+    }
+
     val currentEditGesture = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
         ?.settings
         ?.editGesture
         ?: MemoEditGesture.NONE
+    val widgetLinesPerMemo = settings.usersList
+        .firstOrNull { it.accountKey == settings.currentUser }
+        ?.settings
+        ?.widgetLinesPerMemo
+        ?: UserSettings().widgetLinesPerMemo
     val autosaveEnabled = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
         ?.settings
         ?.autosave
         ?: false
 
-    fun setAutosaveEnabled(enabled: Boolean) {
+    val searchIncludesArchived = settings.usersList
+        .firstOrNull { it.accountKey == settings.currentUser }
+        ?.settings
+        ?.searchIncludesArchived
+        ?: false
+
+    fun updateCurrentUserSettings(transform: (UserSettings) -> UserSettings) {
         scope.launch(Dispatchers.IO) {
             context.settingsDataStore.updateData { existingSettings ->
                 val userIndex = existingSettings.usersList.indexOfFirst { user ->
@@ -137,13 +168,17 @@ fun SettingsPage(
                 }
                 val users = existingSettings.usersList.toMutableList()
                 val user = users[userIndex]
-                users[userIndex] = user.copy(
-                    settings = user.settings.copy(autosave = enabled)
-                )
+                users[userIndex] = user.copy(settings = transform(user.settings))
                 existingSettings.copy(usersList = users)
             }
         }
     }
+
+    fun setAutosaveEnabled(enabled: Boolean) =
+        updateCurrentUserSettings { it.copy(autosave = enabled) }
+
+    fun setSearchIncludesArchived(enabled: Boolean) =
+        updateCurrentUserSettings { it.copy(searchIncludesArchived = enabled) }
 
     Scaffold(
         modifier = Modifier
@@ -256,6 +291,22 @@ fun SettingsPage(
 
             item {
                 SettingItem(
+                    icon = Icons.Outlined.Language,
+                    text = R.string.language.string,
+                    trailingIcon = {
+                        Text(
+                            text = AppLanguage.options.firstOrNull { it.tag == selectedLanguage }?.displayName
+                                ?: R.string.language_system_default.string,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                ) {
+                    showLanguageDialog = true
+                }
+            }
+
+            item {
+                SettingItem(
                     icon = Icons.Outlined.Edit,
                     text = R.string.edit_gesture.string,
                     trailingIcon = {
@@ -270,12 +321,37 @@ fun SettingsPage(
             }
 
             item {
+                SettingItem(
+                    icon = Icons.Outlined.Widgets,
+                    text = R.string.widget_lines_per_memo.string,
+                    trailingIcon = {
+                        Text(
+                            text = widgetLinesLabel(widgetLinesPerMemo),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                ) {
+                    showWidgetLinesDialog = true
+                }
+            }
+
+            item {
                 SettingSwitchItem(
                     icon = Icons.Outlined.Save,
                     text = R.string.autosave.string,
                     subtitle = R.string.autosave_summary.string,
                     checked = autosaveEnabled,
                     onCheckedChange = ::setAutosaveEnabled,
+                )
+            }
+
+            item {
+                SettingSwitchItem(
+                    icon = Icons.Outlined.Archive,
+                    text = R.string.search_include_archived.string,
+                    subtitle = R.string.search_include_archived_summary.string,
+                    checked = searchIncludesArchived,
+                    onCheckedChange = ::setSearchIncludesArchived,
                 )
             }
 
@@ -370,6 +446,36 @@ fun SettingsPage(
             }
         }
     }
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text(R.string.language.string) },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    item {
+                        LanguageChoiceRow(
+                            text = R.string.language_system_default.string,
+                            selected = selectedLanguage == AppLanguage.SYSTEM,
+                            onClick = { selectLanguage(AppLanguage.SYSTEM) }
+                        )
+                    }
+                    items(AppLanguage.options.size) { index ->
+                        val option = AppLanguage.options[index]
+                        LanguageChoiceRow(
+                            text = option.displayName,
+                            selected = option.tag == selectedLanguage,
+                            onClick = { selectLanguage(option.tag) }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(R.string.cancel.string)
+                }
+            }
+        )
+    }
     if (showRemoveCertificateDialog) {
         AlertDialog(
             onDismissRequest = {
@@ -399,6 +505,44 @@ fun SettingsPage(
                     }
                 ) {
                     Text(R.string.cancel.string)
+                }
+            }
+        )
+    }
+    if (showWidgetLinesDialog) {
+        AlertDialog(
+            onDismissRequest = { showWidgetLinesDialog = false },
+            title = { Text(R.string.widget_lines_per_memo.string) },
+            text = {
+                LazyColumn {
+                    items(WidgetLineOptions.size) { index ->
+                        val lines = WidgetLineOptions[index]
+                        TextButton(
+                            onClick = {
+                                showWidgetLinesDialog = false
+                                scope.launch(Dispatchers.IO) {
+                                    context.updateCurrentUserSettings { it.copy(widgetLinesPerMemo = lines) }
+                                    WidgetUpdater.updateWidgets(context)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = widgetLinesLabel(lines),
+                                color = if (lines == widgetLinesPerMemo) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showWidgetLinesDialog = false }) {
+                    Text(R.string.close.string)
                 }
             }
         )
@@ -456,6 +600,33 @@ fun SettingsPage(
         )
     }
 }
+
+@Composable
+private fun LanguageChoiceRow(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = text,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+// 0 = the whole memo
+private val WidgetLineOptions = listOf(1, 2, 3, 4, 5, 6, 8, 10, 15, 0)
+
+private fun widgetLinesLabel(lines: Int): String =
+    if (lines > 0) lines.toString() else R.string.widget_lines_all.string
 
 private val MemoEditGesture.titleResource: Int
     get() = when (this) {

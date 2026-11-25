@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Memo background colours (light / values-night dark), used by the app and the widgets -->
+<resources>
+    <color name="memo_color_red">#77172E</color>
+    <color name="memo_color_orange">#692B17</color>
+    <color name="memo_color_yellow">#7C4A03</color>
+    <color name="memo_color_green">#264D3B</color>
+    <color name="memo_color_teal">#0C625D</color>
+    <color name="memo_color_blue">#256377</color>
+    <color name="memo_color_purple">#472E5B</color>
+    <color name="memo_color_pink">#6C394F</color>
+    <color name="memo_color_gray">#4B443A</color>
+</resources>

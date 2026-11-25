@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.appwidget.AndroidRemoteViews
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionStartActivity
@@ -24,6 +25,7 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.text.Text
@@ -39,6 +41,7 @@ import me.mudkip.moememos.data.local.entity.MemoEntity
 import me.mudkip.moememos.data.model.MemoEditGesture
 import me.mudkip.moememos.data.service.MemoService
 import me.mudkip.moememos.ext.settingsDataStore
+import me.mudkip.moememos.util.AppLanguage
 import timber.log.Timber
 import java.time.Instant
 
@@ -55,7 +58,7 @@ class MemoryGlanceWidget : GlanceAppWidget() {
             .firstOrNull { it.accountKey == settings.currentUser }
             ?.settings?.editGesture == MemoEditGesture.SINGLE
 
-        provideContent(createContent(context, memoService, openInEditor))
+        provideContent(createContent(AppLanguage.wrap(context), memoService, openInEditor))
     }
 
     // Keep composable lambda captures outside the coroutine state machine so Compose
@@ -84,7 +87,7 @@ class MemoryGlanceWidget : GlanceAppWidget() {
                         error = null
                     }
                 } catch (e: Exception) {
-                    error = e.message ?: "Unknown error"
+                    error = e.message ?: context.getString(R.string.error_unknown)
                     Timber.tag("MemoryWidget").e(e, "Exception in memory widget")
                 } finally {
                     isLoading = false
@@ -152,14 +155,9 @@ class MemoryGlanceWidget : GlanceAppWidget() {
                             )
                         )
                         Spacer(modifier = GlanceModifier.height(8.dp))
-                        Text(
-                            text = loadedMemo.content.take(560) +
-                                    if (loadedMemo.content.length > 560) "..." else "",
-                            style = TextStyle(
-                                color = GlanceTheme.colors.onSurface,
-                                fontSize = 14.sp
-                            ),
-                            maxLines = 20
+                        AndroidRemoteViews(
+                            remoteViews = widgetMemoTextViews(context, loadedMemo.content, maxLines = 20),
+                            modifier = GlanceModifier.fillMaxWidth()
                         )
                     }
                 }

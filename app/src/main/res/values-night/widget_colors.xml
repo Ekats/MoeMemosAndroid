@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Date pill on widget memo cards: 85% opaque so memo text under it does not show through -->
+    <color name="widget_date_bubble">#D9383838</color>
+</resources>

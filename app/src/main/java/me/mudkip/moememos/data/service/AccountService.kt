@@ -2,10 +2,12 @@ package me.mudkip.moememos.data.service
 
 import android.content.Context
 import android.net.Uri
-import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
+import androidx.room.withTransaction
+import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.getOrThrow
+import com.skydoves.sandwich.mapSuccess
 import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CompletableDeferred
@@ -20,8 +22,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.api.MemosV0Api
+import me.mudkip.moememos.data.api.MemosApiPathInterceptor
 import me.mudkip.moememos.data.api.MemosV1Api
 import me.mudkip.moememos.data.constant.MemosVersionSupport
+import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_CALVER_MAX_VERSION
+import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_CALVER_MIN_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V0_MIN_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V1_MAX_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V1_MIN_VERSION
@@ -39,6 +44,7 @@ import me.mudkip.moememos.data.repository.MemosV0Repository
 import me.mudkip.moememos.data.repository.MemosV1Repository
 import me.mudkip.moememos.data.repository.RemoteRepository
 import me.mudkip.moememos.data.repository.SyncingRepository
+import me.mudkip.moememos.ext.getErrorMessage
 import me.mudkip.moememos.ext.settingsDataStore
 import me.mudkip.moememos.ext.string
 import net.swiftzer.semver.SemVer
@@ -50,12 +56,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.UUID
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -81,6 +82,8 @@ class AccountService @Inject constructor(
         object Allowed : SyncCompatibility()
         data class Blocked(val message: String?) : SyncCompatibility()
         data class RequiresConfirmation(val version: String, val message: String) : SyncCompatibility()
+        /** The version request itself failed (offline, server down, TLS error), so the version is unknown. */
+        data class Unreachable(val message: String) : SyncCompatibility()
     }
 
     private data class ServerVersionInfo(
@@ -93,10 +96,6 @@ class AccountService @Inject constructor(
         TOO_LOW,
         V1_HIGHER,
     }
-
-    private val exportDateFormatter: DateTimeFormatter = DateTimeFormatter
-        .ofPattern("yyyyMMdd-HHmmss", Locale.US)
-        .withZone(ZoneId.systemDefault())
 
     private val networkJson = Json {
         ignoreUnknownKeys = true
@@ -248,7 +247,11 @@ class AccountService @Inject constructor(
     /**
      * Copies every local memo (with its attachments) into the server account [targetAccountKey] as
      * new, unsynced memos; that account's next sync uploads them. The local memos are kept.
-     * Returns how many memos were copied.
+     *
+     * Safe to interrupt and to run again: each copy's identifier is derived from the target account
+     * and the local memo, so memos copied by an earlier (possibly interrupted) run are skipped, even
+     * after they were uploaded. Each memo is written together with its attachments in one
+     * transaction, so a memo is either fully copied or not at all. Returns how many memos were copied.
      */
     suspend fun copyLocalMemosToAccount(targetAccountKey: String): Int {
         val localKey = Account.Local().accountKey()
@@ -256,26 +259,31 @@ class AccountService @Inject constructor(
         require(target != null && target !is Account.Local) { "Not a server account: $targetAccountKey" }
 
         val memoDao = database.memoDao()
-        val memos = memoDao.getAllMemosForSync(localKey).filterNot { it.isDeleted }
-        val resourcesByMemo = memos.associate { memo ->
+        val pending = memoDao.getAllMemosForSync(localKey)
+            .filterNot { it.isDeleted }
+            .filter { memoDao.getMemoById(transferredIdentifier(targetAccountKey, it.identifier), targetAccountKey) == null }
+        val resourcesByMemo = pending.associate { memo ->
             memo.identifier to memoDao.getMemoResources(memo.identifier, localKey)
         }
-        // Check every attachment first, so a missing file does not leave a partial copy behind
+        // Check every attachment first, so a missing file stops the transfer before anything is copied
         resourcesByMemo.values.flatten().forEach { resource ->
             if (localFileForResource(resource)?.exists() != true) {
-                throw IllegalStateException("Missing attachment file: ${resource.filename}")
+                throw IllegalStateException(R.string.missing_attachment_file.string.format(resource.filename))
             }
         }
 
         val now = Instant.now()
-        for (memo in memos) {
-            val copyIdentifier = UUID.randomUUID().toString()
+        for (memo in pending) {
+            val copyIdentifier = transferredIdentifier(targetAccountKey, memo.identifier)
+            // Files first, at paths derived from the copy, so a retry after an interruption overwrites
+            // them instead of leaving a second set behind
             val copiedResources = resourcesByMemo.getValue(memo.identifier).map { resource ->
+                val copyResourceIdentifier = transferredIdentifier(targetAccountKey, resource.identifier)
                 val uri = localFileForResource(resource)!!.inputStream().use { input ->
-                    fileStorage.saveFile(targetAccountKey, input, UUID.randomUUID().toString() + "_" + resource.filename)
+                    fileStorage.saveFile(targetAccountKey, input, copyResourceIdentifier + "_" + resource.filename)
                 }
                 resource.copy(
-                    identifier = UUID.randomUUID().toString(),
+                    identifier = copyResourceIdentifier,
                     remoteId = null,
                     accountKey = targetAccountKey,
                     uri = uri.toString(),
@@ -283,71 +291,26 @@ class AccountService @Inject constructor(
                     memoId = copyIdentifier
                 )
             }
-            memoDao.insertMemo(
-                memo.copy(
-                    identifier = copyIdentifier,
-                    remoteId = null,
-                    accountKey = targetAccountKey,
-                    needsSync = true,
-                    isDeleted = false,
-                    lastModified = now,
-                    lastSyncedAt = null
+            database.withTransaction {
+                memoDao.insertMemo(
+                    memo.copy(
+                        identifier = copyIdentifier,
+                        remoteId = null,
+                        accountKey = targetAccountKey,
+                        needsSync = true,
+                        isDeleted = false,
+                        lastModified = now,
+                        lastSyncedAt = null
+                    )
                 )
-            )
-            copiedResources.forEach { memoDao.insertResource(it) }
-        }
-        return memos.size
-    }
-
-    suspend fun exportLocalAccountZip(destinationUri: Uri) {
-        val accountKey = Account.Local().accountKey()
-        val memoDao = database.memoDao()
-        val memos = memoDao.getAllMemosForSync(accountKey)
-            .filterNot { it.isDeleted }
-            .sortedWith(compareBy({ it.date }, { it.content }))
-
-        if (memos.isEmpty()) {
-            throw IllegalStateException("No local memos to export")
-        }
-
-        context.contentResolver.openOutputStream(destinationUri)?.use { output ->
-            ZipOutputStream(output).use { zip ->
-                val collisionMap = hashMapOf<String, Int>()
-                for (memo in memos) {
-                    val memoBaseName = uniqueMemoBaseName(memo.date, collisionMap)
-                    zip.putNextEntry(ZipEntry("$memoBaseName.md"))
-                    zip.write(memo.content.toByteArray(Charsets.UTF_8))
-                    zip.closeEntry()
-
-                    val resources = memoDao.getMemoResources(memo.identifier, accountKey)
-                        .sortedWith(compareBy<ResourceEntity>({ it.filename }, { it.uri }))
-                    resources.forEachIndexed { index, resource ->
-                        val sourceFile = localFileForResource(resource)
-                            ?: throw IllegalStateException("Missing resource file: ${resource.filename}")
-                        if (!sourceFile.exists()) {
-                            throw IllegalStateException("Missing resource file: ${resource.filename}")
-                        }
-                        val ext = exportFileExtension(resource, sourceFile)
-                        val attachmentName = if (ext.isBlank()) {
-                            "$memoBaseName-${index + 1}"
-                        } else {
-                            "$memoBaseName-${index + 1}.$ext"
-                        }
-                        zip.putNextEntry(ZipEntry(attachmentName))
-                        sourceFile.inputStream().use { input -> input.copyTo(zip) }
-                        zip.closeEntry()
-                    }
-                }
+                copiedResources.forEach { memoDao.insertResource(it) }
             }
-        } ?: throw IllegalStateException("Unable to open export destination")
+        }
+        return pending.size
     }
 
-    private fun uniqueMemoBaseName(date: Instant, collisionMap: MutableMap<String, Int>): String {
-        val base = exportDateFormatter.format(date)
-        val count = collisionMap[base] ?: 0
-        collisionMap[base] = count + 1
-        return if (count == 0) base else "${base}_$count"
-    }
+    private fun transferredIdentifier(targetAccountKey: String, localIdentifier: String): String =
+        UUID.nameUUIDFromBytes("transfer:$targetAccountKey:$localIdentifier".toByteArray()).toString()
 
     private fun localFileForResource(resource: ResourceEntity): File? {
         val uri = (resource.localUri ?: resource.uri).toUri()
@@ -356,19 +319,6 @@ class AccountService @Inject constructor(
         }
         val path = uri.path ?: return null
         return File(path)
-    }
-
-    private fun exportFileExtension(resource: ResourceEntity, sourceFile: File): String {
-        val filenameExt = resource.filename.substringAfterLast('.', "")
-        if (filenameExt.isNotBlank()) {
-            return filenameExt.lowercase(Locale.US)
-        }
-        val sourceExt = sourceFile.extension
-        if (sourceExt.isNotBlank()) {
-            return sourceExt.lowercase(Locale.US)
-        }
-        val fromMime = resource.mimeType?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
-        return fromMime?.lowercase(Locale.US) ?: ""
     }
 
     private suspend fun purgeAccountData(accountKey: String) {
@@ -420,6 +370,7 @@ class AccountService @Inject constructor(
 
     fun createMemosV1Client(host: String, accessToken: String?): Pair<OkHttpClient, MemosV1Api> {
         val client = okHttpClient.newBuilder().apply {
+            addInterceptor(MemosApiPathInterceptor(host))
             if (!accessToken.isNullOrBlank()) {
                 addNetworkInterceptor { chain ->
                     var request = chain.request()
@@ -471,8 +422,11 @@ class AccountService @Inject constructor(
             return SyncCompatibility.Allowed
         }
 
-        val serverVersion = fetchVersionForAccount(account)
-            ?: return if (isAutomatic) {
+        val serverVersion = when (val fetched = fetchVersionForAccount(account)) {
+            is VersionFetch.Found -> fetched.info
+            is VersionFetch.Unreachable -> return SyncCompatibility.Unreachable(fetched.message)
+            VersionFetch.Missing -> null
+        } ?: return if (isAutomatic) {
                 SyncCompatibility.Blocked(null)
             } else {
                 SyncCompatibility.Blocked(MemosVersionSupport.supportedVersionsMessage(context))
@@ -563,31 +517,29 @@ class AccountService @Inject constructor(
         return ServerVersionInfo(UserData.AccountCase.ACCOUNT_NOT_SET, "")
     }
 
-    private suspend fun fetchVersionForAccount(account: Account): ServerVersionInfo? {
-        return when (account) {
-            is Account.MemosV0 -> {
-                val version = createMemosV0Client(account.info.host, account.info.accessToken)
-                    .second
-                    .status()
-                    .getOrNull()
-                    ?.profile
-                    ?.version
-                    ?.trim()
-                    .orEmpty()
-                if (version.isBlank()) null else ServerVersionInfo(UserData.AccountCase.MEMOS_V0, version)
-            }
-            is Account.MemosV1 -> {
-                val version = createMemosV1Client(account.info.host, account.info.accessToken)
-                    .second
-                    .getProfile()
-                    .getOrNull()
-                    ?.version
-                    ?.trim()
-                    .orEmpty()
-                if (version.isBlank()) null else ServerVersionInfo(UserData.AccountCase.MEMOS_V1, version)
-            }
-            else -> null
+    private sealed class VersionFetch {
+        data class Found(val info: ServerVersionInfo) : VersionFetch()
+        /** The server answered without a version. */
+        object Missing : VersionFetch()
+        data class Unreachable(val message: String) : VersionFetch()
+    }
+
+    private suspend fun fetchVersionForAccount(account: Account): VersionFetch {
+        val (accountCase, response) = when (account) {
+            is Account.MemosV0 -> UserData.AccountCase.MEMOS_V0 to
+                createMemosV0Client(account.info.host, account.info.accessToken).second.status()
+                    .mapSuccess { profile.version }
+            is Account.MemosV1 -> UserData.AccountCase.MEMOS_V1 to
+                createMemosV1Client(account.info.host, account.info.accessToken).second.getProfile()
+                    .mapSuccess { version }
+            else -> return VersionFetch.Missing
         }
+        if (response !is ApiResponse.Success) {
+            // Not a version problem: report why the server could not be reached
+            return VersionFetch.Unreachable(response.getErrorMessage().take(300))
+        }
+        val version = response.data.trim()
+        return if (version.isBlank()) VersionFetch.Missing else VersionFetch.Found(ServerVersionInfo(accountCase, version))
     }
 
     private suspend fun isUnsupportedSyncVersionAccepted(accountKey: String, version: String): Boolean {
@@ -665,6 +617,7 @@ class AccountService @Inject constructor(
                     versionName.isEmpty() -> VersionPolicy.TOO_LOW
                     version == null -> VersionPolicy.V1_HIGHER
                     version < MEMOS_V1_MIN_VERSION -> VersionPolicy.TOO_LOW
+                    version >= MEMOS_CALVER_MIN_VERSION && version <= MEMOS_CALVER_MAX_VERSION -> VersionPolicy.SUPPORTED
                     version > MEMOS_V1_MAX_VERSION -> VersionPolicy.V1_HIGHER
                     else -> VersionPolicy.SUPPORTED
                 }
