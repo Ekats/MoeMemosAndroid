@@ -2,7 +2,6 @@ package me.mudkip.moememos.data.service
 
 import android.content.Context
 import android.net.Uri
-import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import androidx.room.withTransaction
 import com.skydoves.sandwich.ApiResponse
@@ -23,8 +22,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.api.MemosV0Api
+import me.mudkip.moememos.data.api.MemosApiPathInterceptor
 import me.mudkip.moememos.data.api.MemosV1Api
 import me.mudkip.moememos.data.constant.MemosVersionSupport
+import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_CALVER_MAX_VERSION
+import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_CALVER_MIN_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V0_MIN_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V1_MAX_VERSION
 import me.mudkip.moememos.data.constant.MemosVersionSupport.MEMOS_V1_MIN_VERSION
@@ -54,12 +56,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.File
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.UUID
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -99,10 +96,6 @@ class AccountService @Inject constructor(
         TOO_LOW,
         V1_HIGHER,
     }
-
-    private val exportDateFormatter: DateTimeFormatter = DateTimeFormatter
-        .ofPattern("yyyyMMdd-HHmmss", Locale.US)
-        .withZone(ZoneId.systemDefault())
 
     private val networkJson = Json {
         ignoreUnknownKeys = true
@@ -275,7 +268,7 @@ class AccountService @Inject constructor(
         // Check every attachment first, so a missing file stops the transfer before anything is copied
         resourcesByMemo.values.flatten().forEach { resource ->
             if (localFileForResource(resource)?.exists() != true) {
-                throw IllegalStateException("Missing attachment file: ${resource.filename}")
+                throw IllegalStateException(R.string.missing_attachment_file.string.format(resource.filename))
             }
         }
 
@@ -319,56 +312,6 @@ class AccountService @Inject constructor(
     private fun transferredIdentifier(targetAccountKey: String, localIdentifier: String): String =
         UUID.nameUUIDFromBytes("transfer:$targetAccountKey:$localIdentifier".toByteArray()).toString()
 
-    suspend fun exportLocalAccountZip(destinationUri: Uri) {
-        val accountKey = Account.Local().accountKey()
-        val memoDao = database.memoDao()
-        val memos = memoDao.getAllMemosForSync(accountKey)
-            .filterNot { it.isDeleted }
-            .sortedWith(compareBy({ it.date }, { it.content }))
-
-        if (memos.isEmpty()) {
-            throw IllegalStateException("No local memos to export")
-        }
-
-        context.contentResolver.openOutputStream(destinationUri)?.use { output ->
-            ZipOutputStream(output).use { zip ->
-                val collisionMap = hashMapOf<String, Int>()
-                for (memo in memos) {
-                    val memoBaseName = uniqueMemoBaseName(memo.date, collisionMap)
-                    zip.putNextEntry(ZipEntry("$memoBaseName.md"))
-                    zip.write(memo.content.toByteArray(Charsets.UTF_8))
-                    zip.closeEntry()
-
-                    val resources = memoDao.getMemoResources(memo.identifier, accountKey)
-                        .sortedWith(compareBy<ResourceEntity>({ it.filename }, { it.uri }))
-                    resources.forEachIndexed { index, resource ->
-                        val sourceFile = localFileForResource(resource)
-                            ?: throw IllegalStateException("Missing resource file: ${resource.filename}")
-                        if (!sourceFile.exists()) {
-                            throw IllegalStateException("Missing resource file: ${resource.filename}")
-                        }
-                        val ext = exportFileExtension(resource, sourceFile)
-                        val attachmentName = if (ext.isBlank()) {
-                            "$memoBaseName-${index + 1}"
-                        } else {
-                            "$memoBaseName-${index + 1}.$ext"
-                        }
-                        zip.putNextEntry(ZipEntry(attachmentName))
-                        sourceFile.inputStream().use { input -> input.copyTo(zip) }
-                        zip.closeEntry()
-                    }
-                }
-            }
-        } ?: throw IllegalStateException("Unable to open export destination")
-    }
-
-    private fun uniqueMemoBaseName(date: Instant, collisionMap: MutableMap<String, Int>): String {
-        val base = exportDateFormatter.format(date)
-        val count = collisionMap[base] ?: 0
-        collisionMap[base] = count + 1
-        return if (count == 0) base else "${base}_$count"
-    }
-
     private fun localFileForResource(resource: ResourceEntity): File? {
         val uri = (resource.localUri ?: resource.uri).toUri()
         if (uri.scheme != "file") {
@@ -376,19 +319,6 @@ class AccountService @Inject constructor(
         }
         val path = uri.path ?: return null
         return File(path)
-    }
-
-    private fun exportFileExtension(resource: ResourceEntity, sourceFile: File): String {
-        val filenameExt = resource.filename.substringAfterLast('.', "")
-        if (filenameExt.isNotBlank()) {
-            return filenameExt.lowercase(Locale.US)
-        }
-        val sourceExt = sourceFile.extension
-        if (sourceExt.isNotBlank()) {
-            return sourceExt.lowercase(Locale.US)
-        }
-        val fromMime = resource.mimeType?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
-        return fromMime?.lowercase(Locale.US) ?: ""
     }
 
     private suspend fun purgeAccountData(accountKey: String) {
@@ -440,6 +370,7 @@ class AccountService @Inject constructor(
 
     fun createMemosV1Client(host: String, accessToken: String?): Pair<OkHttpClient, MemosV1Api> {
         val client = okHttpClient.newBuilder().apply {
+            addInterceptor(MemosApiPathInterceptor(host))
             if (!accessToken.isNullOrBlank()) {
                 addNetworkInterceptor { chain ->
                     var request = chain.request()
@@ -686,6 +617,7 @@ class AccountService @Inject constructor(
                     versionName.isEmpty() -> VersionPolicy.TOO_LOW
                     version == null -> VersionPolicy.V1_HIGHER
                     version < MEMOS_V1_MIN_VERSION -> VersionPolicy.TOO_LOW
+                    version >= MEMOS_CALVER_MIN_VERSION && version <= MEMOS_CALVER_MAX_VERSION -> VersionPolicy.SUPPORTED
                     version > MEMOS_V1_MAX_VERSION -> VersionPolicy.V1_HIGHER
                     else -> VersionPolicy.SUPPORTED
                 }

@@ -41,6 +41,7 @@ import me.mudkip.moememos.data.local.entity.MemoEntity
 import me.mudkip.moememos.data.model.MemoEditGesture
 import me.mudkip.moememos.data.service.MemoService
 import me.mudkip.moememos.ext.settingsDataStore
+import me.mudkip.moememos.util.AppLanguage
 import timber.log.Timber
 import java.time.Instant
 
@@ -57,7 +58,7 @@ class MemoryGlanceWidget : GlanceAppWidget() {
             .firstOrNull { it.accountKey == settings.currentUser }
             ?.settings?.editGesture == MemoEditGesture.SINGLE
 
-        provideContent(createContent(context, memoService, openInEditor))
+        provideContent(createContent(AppLanguage.wrap(context), memoService, openInEditor))
     }
 
     // Keep composable lambda captures outside the coroutine state machine so Compose
@@ -86,7 +87,7 @@ class MemoryGlanceWidget : GlanceAppWidget() {
                         error = null
                     }
                 } catch (e: Exception) {
-                    error = e.message ?: "Unknown error"
+                    error = e.message ?: context.getString(R.string.error_unknown)
                     Timber.tag("MemoryWidget").e(e, "Exception in memory widget")
                 } finally {
                     isLoading = false

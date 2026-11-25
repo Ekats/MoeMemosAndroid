@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import me.mudkip.moememos.R
 import me.mudkip.moememos.data.constant.MoeMemosException
 import me.mudkip.moememos.data.local.FileStorage
 import me.mudkip.moememos.data.local.dao.MemoDao
@@ -27,11 +28,14 @@ import me.mudkip.moememos.data.local.entity.MemoWithResources
 import me.mudkip.moememos.data.local.entity.ResourceEntity
 import me.mudkip.moememos.data.model.Account
 import me.mudkip.moememos.data.model.Memo
+import me.mudkip.moememos.data.model.MemoLocation
+import me.mudkip.moememos.data.model.MemoLocationChange
 import me.mudkip.moememos.data.model.MemoVisibility
 import me.mudkip.moememos.data.model.Resource
 import me.mudkip.moememos.data.model.SyncStatus
 import me.mudkip.moememos.data.model.User
 import me.mudkip.moememos.ext.getErrorMessage
+import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.util.extractCustomTags
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -106,7 +110,8 @@ class SyncingRepository(
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
         tags: List<String>?,
-        deferPush: Boolean
+        deferPush: Boolean,
+        location: MemoLocation?
     ): ApiResponse<MemoEntity> {
         return try {
             val now = Instant.now()
@@ -115,6 +120,7 @@ class SyncingRepository(
                 remoteId = null,
                 accountKey = accountKey,
                 content = content,
+                location = location,
                 date = now,
                 visibility = visibility,
                 pinned = false,
@@ -127,12 +133,7 @@ class SyncingRepository(
             memoDao.insertMemo(localMemo)
 
             resources.forEach { resource ->
-                memoDao.insertResource(
-                    resource.copy(
-                        accountKey = accountKey,
-                        memoId = localMemo.identifier
-                    )
-                )
+                memoDao.attachResourceToMemo(resource, localMemo.identifier, accountKey)
             }
 
             refreshUnsyncedCount()
@@ -154,7 +155,8 @@ class SyncingRepository(
         visibility: MemoVisibility?,
         tags: List<String>?,
         pinned: Boolean?,
-        deferPush: Boolean
+        deferPush: Boolean,
+        location: MemoLocationChange?
     ): ApiResponse<MemoEntity> {
         return try {
             var updatedMemo: MemoEntity
@@ -162,10 +164,11 @@ class SyncingRepository(
             // remoteId) is not overwritten with the stale copy, which would re-create the memo remotely.
             do {
                 val existingMemo = memoDao.getMemoById(identifier, accountKey)
-                    ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                    ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
 
                 updatedMemo = existingMemo.copy(
                     content = content ?: existingMemo.content,
+                    location = if (location != null) location.value else existingMemo.location,
                     visibility = visibility ?: existingMemo.visibility,
                     pinned = pinned ?: existingMemo.pinned,
                     needsSync = true,
@@ -184,12 +187,7 @@ class SyncingRepository(
                     }
                 }
                 resources.forEach { resource ->
-                    memoDao.insertResource(
-                        resource.copy(
-                            accountKey = accountKey,
-                            memoId = identifier
-                        )
-                    )
+                    memoDao.attachResourceToMemo(resource, identifier, accountKey)
                 }
             }
 
@@ -212,7 +210,7 @@ class SyncingRepository(
     override suspend fun deleteMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     isDeleted = true,
@@ -232,7 +230,7 @@ class SyncingRepository(
     override suspend fun archiveMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     archived = true,
@@ -251,7 +249,7 @@ class SyncingRepository(
     override suspend fun restoreMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     archived = false,
@@ -337,7 +335,7 @@ class SyncingRepository(
     override suspend fun deleteResource(identifier: String): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
 
             val memoId = resource.memoId
             deleteLocalFile(resource)
@@ -370,16 +368,16 @@ class SyncingRepository(
     override suspend fun cacheResourceFile(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
             val existingLocal = existingLocalUri(resource)
             if (existingLocal != null) {
                 return ApiResponse.Success(Unit)
             }
 
-            val sourcePath = downloadedUri.path ?: return ApiResponse.Failure.Exception(Exception("Invalid downloaded file"))
+            val sourcePath = downloadedUri.path ?: return ApiResponse.Failure.Exception(Exception(R.string.invalid_downloaded_file.string))
             val sourceFile = File(sourcePath)
             if (!sourceFile.exists()) {
-                return ApiResponse.Failure.Exception(Exception("Downloaded file does not exist"))
+                return ApiResponse.Failure.Exception(Exception(R.string.downloaded_file_not_exist.string))
             }
 
             val canonical = fileStorage.saveFile(
@@ -534,6 +532,11 @@ class SyncingRepository(
             if (local.remoteId != null && remoteById.containsKey(local.remoteId)) {
                 continue
             }
+            // A conflict copy (or concurrent push) can gain a remote ID after the server snapshot
+            // was fetched. Its absence from that snapshot does not mean it was deleted remotely.
+            if (local.remoteId != null && !localByRemoteId.containsKey(local.remoteId)) {
+                continue
+            }
 
             if (local.remoteId != null && !remoteById.containsKey(local.remoteId)) {
                 if (local.isDeleted) {
@@ -561,7 +564,7 @@ class SyncingRepository(
 
         return if (hadErrors) {
             ApiResponse.Failure.Exception(
-                Exception(firstErrorMessage ?: "Sync finished with partial failures")
+                Exception(firstErrorMessage ?: R.string.sync_partial_failures.string)
             )
         } else {
             ApiResponse.Success(Unit)
@@ -629,7 +632,8 @@ class SyncingRepository(
                 resourceRemoteIds = remoteResourceIds,
                 visibility = local.visibility,
                 pinned = local.pinned,
-                archived = local.archived
+                archived = local.archived,
+                location = MemoLocationChange(local.location)
             )
             if (updated is ApiResponse.Success) {
                 reconcileServerCreatedMemo(
@@ -646,7 +650,8 @@ class SyncingRepository(
                 visibility = local.visibility,
                 resourceRemoteIds = remoteResourceIds,
                 tags = null,
-                createdAt = local.date
+                createdAt = local.date,
+                location = local.location
             )
             if (created !is ApiResponse.Success) {
                 return false
@@ -663,7 +668,8 @@ class SyncingRepository(
                     resourceRemoteIds = remoteResourceIds,
                     visibility = local.visibility,
                     pinned = local.pinned,
-                    archived = local.archived
+                    archived = local.archived,
+                    location = MemoLocationChange(local.location)
                 )
                 if (updated !is ApiResponse.Success) {
                     // Keep the server linkage and needsSync: the next push is an update and retries
@@ -779,13 +785,12 @@ class SyncingRepository(
         )
 
         val remoteResource = uploaded.getOrNull() ?: return null
-        val synced = resource.copy(
+        return memoDao.recordResourceUpload(
+            identifier = resource.identifier,
+            accountKey = accountKey,
             remoteId = remoteResourceId(remoteResource),
-            uri = remoteResource.uri,
-            localUri = resource.localUri ?: resource.uri
+            uri = remoteResource.uri
         )
-        memoDao.insertResource(synced)
-        return synced
     }
 
     /**
@@ -810,6 +815,7 @@ class SyncingRepository(
             remoteId = remoteId,
             accountKey = accountKey,
             content = remoteMemo.content,
+            location = remoteMemo.location,
             date = remoteMemo.date,
             visibility = remoteMemo.visibility,
             pinned = remoteMemo.pinned,
@@ -881,6 +887,9 @@ class SyncingRepository(
     }
 
     private suspend fun memoEquivalent(local: MemoEntity, remote: Memo): Boolean {
+        if (local.location != remote.location) {
+            return false
+        }
         if (local.content != remote.content) {
             return false
         }
@@ -928,19 +937,19 @@ class SyncingRepository(
     }
 
     private fun enqueuePushMemo(identifier: String, forceCreate: Boolean = false) {
-        enqueueOperation("Failed to sync memo") {
+        enqueueOperation(R.string.sync_memo_failed.string) {
             pushLocalMemo(identifier, forceCreate)
         }
     }
 
     private fun enqueuePushResource(identifier: String) {
-        enqueueOperation("Failed to sync resource") {
+        enqueueOperation(R.string.sync_resource_failed.string) {
             pushLocalResource(identifier)
         }
     }
 
     private fun enqueueDeleteRemoteResource(remoteId: String) {
-        enqueueOperation("Failed to delete resource on server") {
+        enqueueOperation(R.string.sync_delete_resource_failed.string) {
             remoteRepository.deleteResource(remoteId) is ApiResponse.Success
         }
     }
@@ -1048,8 +1057,8 @@ class SyncingRepository(
 
     companion object {
         private const val MAX_RECONCILE_ATTEMPTS = 5
-        private const val ATTACHMENT_UPLOAD_FAILED_MESSAGE =
-            "Failed to upload one or more attachments during sync"
+        private val ATTACHMENT_UPLOAD_FAILED_MESSAGE: String
+            get() = R.string.attachment_upload_failed.string
     }
 
 }

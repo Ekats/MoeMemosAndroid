@@ -9,7 +9,7 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import org.intellij.markdown.parser.MarkdownParser
 import org.intellij.markdown.parser.CancellationToken
 
-private val customTagPattern = Regex("#([^\\s#]+)")
+private val customTagPattern = Regex("""#([\p{L}\p{M}\p{N}\p{S}_/&\u200D-]+)""")
 private val customTagExcludedTypes = setOf(
     MarkdownElementTypes.CODE_BLOCK,
     MarkdownElementTypes.CODE_FENCE,
@@ -33,7 +33,15 @@ private val customTagExcludedTypes = setOf(
 )
 
 internal fun findCustomTagMatches(text: String): Sequence<MatchResult> {
-    return customTagPattern.findAll(text)
+    return customTagPattern.findAll(text).filter { match ->
+        var backslashCount = 0
+        var index = match.range.first - 1
+        while (index >= 0 && text[index] == '\\') {
+            backslashCount++
+            index--
+        }
+        backslashCount % 2 == 0
+    }
 }
 
 internal fun getCustomTagName(matchResult: MatchResult): String {
@@ -74,6 +82,11 @@ fun extractCustomTags(markdownText: String): Set<String> {
     }
 
     return tags
+}
+
+/** Matches a parsed tag or its descendants, preserving case-sensitive tag names. */
+fun hasCustomTag(markdownText: String, tag: String): Boolean {
+    return extractCustomTags(markdownText).any { it == tag || it.startsWith("$tag/") }
 }
 
 fun ASTNode.findNodeAtPosition(position: Int): ASTNode? {

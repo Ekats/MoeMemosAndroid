@@ -43,6 +43,10 @@
     <string name="remove_client_certificate_message">Moe Memos will no longer use the selected client certificate.</string>
     <string name="edit">Edit</string>
     <string name="close">Close</string>
+    <string name="save_changes_title">Save Changes?</string>
+    <string name="save_changes_message">Do you want to save changes before exiting?</string>
+    <string name="save">Save</string>
+    <string name="discard">Discard</string>
     <string name="add_task">Add Task</string>
     <string name="add_image">Add Image</string>
     <string name="take_photo">Take Photo</string>
@@ -105,10 +109,24 @@
     <string name="memo_color_none">No color</string>
     <string name="autosave">Autosave</string>
     <string name="autosave_summary">Save every change on this device and sync it in the background</string>
+    <string name="search_include_archived">Include archived in search</string>
+    <string name="search_include_archived_summary">Search results also show matching archived memos</string>
     <string name="failed_to_open_attachment">Failed to open attachment</string>
     <string name="export_local_account">Export Local Data</string>
     <string name="local_export_success">Local data exported</string>
     <string name="local_export_failed">Failed to export local data</string>
+    <string name="import_local_account">Import Local Data</string>
+    <string name="restore_local_backup">Restore</string>
+    <string name="local_backup_description">Export your local memos and attachments as a backup. Restore a Moe Memos local export, including older exports, into this device’s local account.</string>
+    <string name="local_backup_processing">Processing local backup…</string>
+    <string name="local_backup_failed">Could not complete local backup operation</string>
+    <string name="local_import_preview">Memos: %1$d\nAttachments: %2$d</string>
+    <string name="local_import_additive">Existing local notes will be kept. Notes already restored from this backup are skipped. Nothing is uploaded to a server.</string>
+    <string name="local_import_existing">Existing memos to skip: %1$d</string>
+    <string name="local_import_legacy">This is an older export. Dates are inferred using this device’s time zone, and attachments are matched by filename. Pin, archive, visibility, and original attachment names were not saved; restored notes will be unpinned, unarchived, and private. The first import may duplicate notes already on this device.</string>
+    <string name="local_import_ignored">Unrecognized files to ignore: %1$d</string>
+    <string name="local_import_complete">Local data restored</string>
+    <string name="local_import_result">Restored\nMemos: %1$d\nAttachments: %2$d\n\nSkipped (existing data)\nMemos: %3$d\nAttachments: %4$d</string>
     <string name="transfer_local_memos">Transfer to Server</string>
     <string name="transfer_local_memos_message">Copy all local memos and their attachments to this account. They upload on its next sync. The local memos are kept. Memos already transferred to this account are skipped, so you can run it again if it was interrupted.</string>
     <string name="transfer_local_memos_success">%1$d memos copied to %2$s</string>
@@ -149,4 +167,45 @@
     <string name="retry">Retry</string>
     <string name="failed_to_load_memos">Could not load memos</string>
     <string name="select_memo">Select a memo to read</string>
+    <string name="memo_location">Location</string>
+    <string name="location_name">Place name</string>
+    <string name="latitude">Latitude</string>
+    <string name="longitude">Longitude</string>
+    <string name="latitude_range" translatable="false">−90 to 90</string>
+    <string name="longitude_range" translatable="false">−180 to 180</string>
+    <string name="use_current_location">Use current location</string>
+    <string name="remove_location">Remove location</string>
+    <string name="location_permission_denied">Location permission was denied. You can enter coordinates manually.</string>
+    <string name="location_services_disabled">Turn on device location or enter coordinates manually.</string>
+    <string name="location_unavailable">Could not get your current location. Try again or enter coordinates manually.</string>
+    <string name="location_settings">Location settings</string>
+    <string name="location_no_map_app">No map app or browser is available.</string>
+
+    <!-- In-app language -->
+    <string name="language">Language</string>
+    <string name="language_system_default">System default</string>
+
+    <!-- Widget and media labels -->
+    <string name="widget_private">Private</string>
+    <string name="widget_pinned">Pinned</string>
+    <string name="live_photo">LIVE</string>
+    <string name="unable_to_take_picture">Unable to take picture.</string>
+
+    <!-- Local backup and transfer errors -->
+    <string name="transfer_local_account_only">Transfer is available for local account only</string>
+    <string name="local_backup_read_write_failed">Unable to read or write local backup</string>
+    <string name="local_backup_too_large">Backup is too large</string>
+    <string name="local_backup_cannot_open_destination">Cannot open export destination</string>
+    <string name="local_backup_cannot_open">Cannot open backup</string>
+    <string name="missing_attachment_file">Missing attachment file: %1$s</string>
+
+    <!-- Sync errors -->
+    <string name="resource_not_found">Resource not found</string>
+    <string name="invalid_downloaded_file">Invalid downloaded file</string>
+    <string name="downloaded_file_not_exist">Downloaded file does not exist</string>
+    <string name="sync_partial_failures">Sync finished with partial failures</string>
+    <string name="sync_memo_failed">Failed to sync memo</string>
+    <string name="sync_resource_failed">Failed to sync resource</string>
+    <string name="sync_delete_resource_failed">Failed to delete resource on server</string>
+    <string name="attachment_upload_failed">Failed to upload one or more attachments during sync</string>
 </resources>

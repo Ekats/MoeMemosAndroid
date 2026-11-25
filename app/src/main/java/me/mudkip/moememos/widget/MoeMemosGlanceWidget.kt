@@ -64,6 +64,8 @@ import me.mudkip.moememos.data.model.UserSettings
 import me.mudkip.moememos.data.service.MemoService
 import me.mudkip.moememos.ext.currentUserSettings
 import me.mudkip.moememos.ext.settingsDataStore
+import me.mudkip.moememos.util.AppLanguage
+import me.mudkip.moememos.util.hasCustomTag
 import me.mudkip.moememos.util.MemoColor
 import timber.log.Timber
 import java.time.Instant
@@ -83,7 +85,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
             .firstOrNull { it.accountKey == settings.currentUser }
             ?.settings?.editGesture == MemoEditGesture.SINGLE
 
-        provideContent(createContent(context, memoService, openInEditor))
+        provideContent(createContent(AppLanguage.wrap(context), memoService, openInEditor))
     }
 
     // Keep composable lambda captures outside the coroutine state machine so Compose
@@ -125,7 +127,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                     memoService.getRepository().listMemos().suspendOnSuccess {
                         // Filter and sort memos
                         val filteredMemos = data.filter { memo ->
-                            val matchesTag = filterTag == null || memo.content.contains("#$filterTag")
+                            val matchesTag = filterTag == null || hasCustomTag(memo.content, filterTag)
                             val matchesPinned = !pinnedOnly || memo.pinned
                             matchesTag && matchesPinned
                         }
@@ -139,7 +141,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         error = null
                     }
                 } catch (e: Exception) {
-                    error = e.message ?: "Unknown error"
+                    error = e.message ?: context.getString(R.string.error_unknown)
                     Timber.tag("MoeMemosWidget").e(e, "Exception in widget")
                 } finally {
                     isLoading = false
@@ -305,7 +307,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         Spacer(modifier = GlanceModifier.width(3.dp))
                         Image(
                             provider = ImageProvider(android.R.drawable.ic_lock_lock),
-                            contentDescription = "Private",
+                            contentDescription = context.getString(R.string.widget_private),
                             modifier = GlanceModifier.size(10.dp),
                             colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant)
                         )
@@ -314,7 +316,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
                         Spacer(modifier = GlanceModifier.width(3.dp))
                         Image(
                             provider = ImageProvider(R.drawable.ic_pin),
-                            contentDescription = "Pinned",
+                            contentDescription = context.getString(R.string.widget_pinned),
                             modifier = GlanceModifier.size(10.dp),
                             colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant)
                         )

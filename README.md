@@ -8,7 +8,7 @@
 
 You can use Moe Memos with either a self-hosted [✍️memos](https://github.com/usememos/memos) server or locally on your device (no server required).
 
-**Note: Current Moe Memos version supports Memos 0.21.0 and Memos 0.27.0 to 0.31.0. Memos update may introduce breaking API changes. If you are using a version higher than 0.31.0, it is recommended to use [Mortis](https://github.com/mudkipme/mortis) to convert the newer Memos API to the Memos 0.21.0 API and re-login in Moe Memos.**
+**Note: Current Moe Memos version supports Memos 0.21.0, Memos 0.27.0 to 0.31.0, and Memos 26.10 to 26.11.2. Memos update may introduce breaking API changes. If you are using an unsupported version, it is recommended to use [Mortis](https://github.com/mudkipme/mortis) to convert the newer Memos API to the Memos 0.21.0 API and re-login in Moe Memos.**
 
 ## Installation
 
@@ -24,7 +24,7 @@ Or download and install the APK package from the [Releases section](https://gith
 ## Features
 
 - Write memos like tweeting to yourself
-- Use Moe Memos locally on your device (with export) or sync with your own ✍️memos server
+- Use Moe Memos locally on your device (with backup and restore) or sync with your own ✍️memos server
 - Offline-first experience with automatic sync when you are back online
 - Material You design with dynamic themes and themed icon
 - Rich memo content: Markdown editor and renderer, images, non-image attachments, and to-do items
