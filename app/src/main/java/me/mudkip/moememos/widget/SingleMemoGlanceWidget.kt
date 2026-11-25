@@ -29,7 +29,6 @@ import androidx.glance.appwidget.AndroidRemoteViews
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.action.actionStartActivity
-import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
@@ -39,7 +38,6 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
-import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
@@ -62,8 +60,8 @@ import timber.log.Timber
 import java.time.Instant
 
 /**
- * Shows one memo chosen when the widget is placed (SingleMemoWidgetConfigurationActivity), in full
- * and scrollable. Tapping it opens that memo in the editor.
+ * Shows one memo chosen when the widget is placed (SingleMemoWidgetConfigurationActivity), as much
+ * as fits. Tapping anywhere on it opens that memo in the editor.
  */
 class SingleMemoGlanceWidget : GlanceAppWidget() {
 
@@ -156,20 +154,13 @@ class SingleMemoGlanceWidget : GlanceAppWidget() {
                     }
                 }
                 else -> {
-                    // A one-item list, so a long memo can be scrolled; the item needs its own click
-                    LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                        item {
-                            Box(modifier = GlanceModifier.fillMaxWidth().clickable(tapAction)) {
-                                AndroidRemoteViews(
-                                    remoteViews = widgetMemoTextViews(context, loadedMemo.content, maxLines = 0),
-                                    modifier = GlanceModifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                        // Room to scroll the end of the memo out from under the date pill
-                        item {
-                            Spacer(modifier = GlanceModifier.height(20.dp))
-                        }
+                    // No scrolling list: a list keeps taps on its empty space for scrolling, and the
+                    // whole widget must open the memo. Text that does not fit is cut off.
+                    Box(modifier = GlanceModifier.fillMaxSize()) {
+                        AndroidRemoteViews(
+                            remoteViews = widgetMemoTextViews(context, loadedMemo.content, maxLines = 0),
+                            modifier = GlanceModifier.fillMaxWidth()
+                        )
                     }
                     DatePill(context, loadedMemo)
                 }
